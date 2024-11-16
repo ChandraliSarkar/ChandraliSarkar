@@ -1,0 +1,47 @@
+Pyspark_coding_CTE
+from pyspark.sql import SparkSession
+from pyspark.sql.window import Window
+from pyspark.sql.functions import col, lag, row_number
+
+# Create Spark session
+spark = SparkSession.builder.appName("PreviousStatusBeforeDecline").getOrCreate()
+
+# Sample data
+data = [
+    ("Ab1234", "Started", "2024-10-01 10:00:00"),
+    ("Ab1234", "Declined", "2024-10-01 10:05:00"),
+    ("Ab1234", "Processing", "2024-10-01 10:10:00"),
+    ("Ab1234", "Declined", "2024-10-01 10:15:00"),
+    ("Ab5678", "Started", "2024-10-01 11:00:00"),
+    ("Ab5678", "Completed", "2024-10-01 11:05:00"),
+    ("Ab5678", "Declined", "2024-10-01 11:10:00"),
+    ("Ab9101", "Started", "2024-10-01 12:00:00"),
+    ("Ab9101", "Declined", "2024-10-01 12:05:00")
+]
+columns = ["TransactionId", "Status", "Timestamp"]
+
+# Create DataFrame and convert Timestamp column to timestamp type
+df = spark.createDataFrame(data, columns)
+df = df.withColumn("Timestamp", col("Timestamp").cast("timestamp"))
+
+# Define window to order by Timestamp within each TransactionId
+window_spec = Window.partitionBy("TransactionId").orderBy("Timestamp")
+
+# Add columns for the previous status and timestamp
+df_with_prev = df.withColumn("PrevStatus", lag("Status").over(window_spec)) \
+                 .withColumn("PrevTimestamp", lag("Timestamp").over(window_spec))
+
+# Filter for rows where Status is "Declined" and PrevStatus is not null
+df_declined = df_with_prev.filter((col("Status") == "Declined") & (col("PrevStatus").isNotNull()))
+
+# Define window to rank rows by Timestamp for each TransactionId
+rank_window = Window.partitionBy("TransactionId").orderBy("Timestamp")
+
+# Add a row number to each "Declined" row, selecting only the first "Declined" for each TransactionId
+df_first_declined = df_declined.withColumn("rn", row_number().over(rank_window)).filter(col("rn") == 1)
+
+# Select the required columns
+result = df_first_declined.select("TransactionId", "PrevStatus", col("Timestamp").alias("DeclinedTimestamp"))
+
+# Show the result
+result.show()
