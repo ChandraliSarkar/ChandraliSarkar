@@ -1,0 +1,91 @@
+First_value and last_value
+
+SQL code 
+CREATE TABLE EmployeePerformance (
+    EmployeeID INT,
+    EmployeeName VARCHAR(100),
+    Department VARCHAR(50),
+    PerformanceMonth DATE,
+    PerformanceScore INT
+);
+
+INSERT INTO EmployeePerformance (EmployeeID, EmployeeName, Department, PerformanceMonth, PerformanceScore)
+VALUES
+(1, 'Alice', 'Sales', '2024-01-01', 85),
+(1, 'Alice', 'Sales', '2024-02-01', 90),
+(1, 'Alice', 'Sales', '2024-03-01', 88),
+(2, 'Bob', 'HR', '2024-01-01', 75),
+(2, 'Bob', 'HR', '2024-02-01', 80),
+(2, 'Bob', 'HR', '2024-03-01', 78),
+(3, 'Charlie', 'IT', '2024-01-01', 92),
+(3, 'Charlie', 'IT', '2024-02-01', 89),
+(3, 'Charlie', 'IT', '2024-03-01', 94);
+
+Query:
+WITH RankedPerformance AS (
+    SELECT 
+        EmployeeID,
+        EmployeeName,
+        Department,
+        PerformanceScore,
+        PerformanceMonth,
+        FIRST_VALUE(PerformanceScore) OVER (
+            PARTITION BY EmployeeID 
+            ORDER BY PerformanceMonth ASC
+        ) AS FirstScore,
+        LAST_VALUE(PerformanceScore) OVER (
+            PARTITION BY EmployeeID 
+            ORDER BY PerformanceMonth ASC 
+            ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
+        ) AS LastScore
+    FROM EmployeePerformance
+)
+SELECT DISTINCT 
+    EmployeeName,
+    Department,
+    FirstScore,
+    LastScore
+FROM RankedPerformance;
+
+Pyspark Code
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, first, last, year
+from pyspark.sql.window import Window
+
+# Initialize Spark Session
+spark = SparkSession.builder \
+    .appName("Employee Performance") \
+    .getOrCreate()
+
+# Sample Data
+data = [
+    (1, "Alice", "Sales", "2024-01-01", 85),
+    (1, "Alice", "Sales", "2024-02-01", 90),
+    (1, "Alice", "Sales", "2024-03-01", 88),
+    (2, "Bob", "HR", "2024-01-01", 75),
+    (2, "Bob", "HR", "2024-02-01", 80),
+    (2, "Bob", "HR", "2024-03-01", 78),
+    (3, "Charlie", "IT", "2024-01-01", 92),
+    (3, "Charlie", "IT", "2024-02-01", 89),
+    (3, "Charlie", "IT", "2024-03-01", 94),
+]
+
+columns = ["EmployeeID", "EmployeeName", "Department", "PerformanceMonth", "PerformanceScore"]
+
+# Create DataFrame
+df = spark.createDataFrame(data, schema=columns)
+
+# Convert PerformanceMonth to DateType
+df = df.withColumn("PerformanceMonth", col("PerformanceMonth").cast("date"))
+
+
+# Define Window Spec
+window_spec = Window.partitionBy("EmployeeID").orderBy("PerformanceMonth").rowsBetween(Window.unboundedPreceding, Window.unboundedFollowing)
+
+# Calculate First and Last Performance Scores
+df_result = df.withColumn("FirstScore", first("PerformanceScore").over(window_spec)) \
+                       .withColumn("LastScore", last("PerformanceScore").over(window_spec)) \
+                       .select("EmployeeName", "Department", "FirstScore", "LastScore").distinct()
+
+# Show Result
+df_result.show()
